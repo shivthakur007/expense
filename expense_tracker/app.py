@@ -50,7 +50,13 @@ def start_google_oauth():
         scopes=["openid", "email", "profile"],
         redirect_uri=REDIRECT_URI,
     )
-    auth_url, _ = flow.authorization_url(prompt="consent")
+
+    auth_url, _ = flow.authorization_url(
+        prompt="consent",
+        access_type="offline",
+        include_granted_scopes="true",
+    )
+
     return auth_url
 
 def exchange_google_code(code):
@@ -67,7 +73,7 @@ def exchange_google_code(code):
         scopes=["openid", "email", "profile"],
         redirect_uri=REDIRECT_URI,
     )
-    flow.fetch_token(code=code)
+    flow.fetch_token(code=code, client_secret=GOOGLE_CLIENT_SECRET)
     return flow.credentials.id_token
 
 # ---------------- SESSION ----------------
