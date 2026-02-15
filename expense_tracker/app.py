@@ -2,8 +2,42 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 from firebase_config import get_db
+import plotly.express as px
 
 db = get_db()
+
+st.set_page_config(page_title="Expense Tracker", layout="wide")
+
+# ---------- THEME TOGGLE ----------
+dark_mode = st.sidebar.toggle("Dark mode", value=False)
+
+if dark_mode:
+    theme_css = """
+    <style>
+    .main { background: #0b1220; color: #e5e7eb; }
+    .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+    h1, h2, h3 { color: #e5e7eb; }
+    .kpi-card { background: #111827; color: #e5e7eb; box-shadow: 0 6px 18px rgba(0,0,0,0.3); }
+    .kpi-title { color: #9ca3af; }
+    .stButton>button { background: #2563eb; color: white; }
+    .stButton>button:hover { background: #1d4ed8; }
+    </style>
+    """
+else:
+    theme_css = """
+    <style>
+    .main { background: #f4f6fb; }
+    .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+    h1 { font-size: 2.3rem; letter-spacing: -0.5px; }
+    .kpi-card { background: white; padding: 1rem 1.2rem; border-radius: 14px; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08); }
+    .kpi-title { font-size: 0.9rem; color: #475569; }
+    .kpi-value { font-size: 1.6rem; font-weight: 700; color: #0f172a; }
+    .stButton>button { background: #0f172a; color: white; border-radius: 10px; border: none; padding: 0.6rem 1.2rem; }
+    .stButton>button:hover { background: #1f2937; }
+    </style>
+    """
+
+st.markdown(theme_css, unsafe_allow_html=True)
 
 st.title("Expense Tracker 💸")
 st.markdown("Money saved is equal to money earned")
@@ -11,40 +45,41 @@ st.markdown("Money saved is equal to money earned")
 CATEGORIES = ["Food", "Transport", "Bills", "Shopping", "Entertainment", "Health", "Education", "Other"]
 PAYMENT_MODES = ["Cash", "Card", "UPI", "Bank Transfer", "Wallet", "Other"]
 
-# ---------------- ADD EXPENSE ----------------
-expense = st.text_input("Enter expense")
-amount = st.number_input("Enter amount", min_value=0.0, step=50.0, format="%.2f")
-expense_date = st.date_input("Expense date", value=date.today())
+# ---------- SIDEBAR: ADD EXPENSE ----------
+with st.sidebar:
+    st.header("Add Expense")
+    expense = st.text_input("Enter expense")
+    amount = st.number_input("Enter amount", min_value=0.0, step=50.0, format="%.2f")
+    expense_date = st.date_input("Expense date", value=date.today())
 
-category = st.selectbox("Category", CATEGORIES + ["Other"])
-if category == "Other":
-    category_other = st.text_input("Custom category")
-    if category_other:
-        category = category_other.strip()
+    category = st.selectbox("Category", CATEGORIES + ["Other"])
+    if category == "Other":
+        category_other = st.text_input("Custom category")
+        if category_other:
+            category = category_other.strip()
 
-payment_mode = st.selectbox("Payment mode", PAYMENT_MODES + ["Other"])
-if payment_mode == "Other":
-    payment_other = st.text_input("Custom payment mode")
-    if payment_other:
-        payment_mode = payment_other.strip()
+    payment_mode = st.selectbox("Payment mode", PAYMENT_MODES + ["Other"])
+    if payment_mode == "Other":
+        payment_other = st.text_input("Custom payment mode")
+        if payment_other:
+            payment_mode = payment_other.strip()
 
-if st.button("Add Expense"):
-    if expense:
-        db.collection("expenses").add({
-            "expense": expense.strip(),
-            "amount": float(amount),
-            "category": category,
-            "payment_mode": payment_mode,
-            "date": expense_date.isoformat()
-        })
-        st.success("Expense added")
-        st.rerun()
-    else:
-        st.warning("Please enter an expense")
+    if st.button("Add Expense"):
+        if expense:
+            db.collection("expenses").add({
+                "expense": expense.strip(),
+                "amount": float(amount),
+                "category": category,
+                "payment_mode": payment_mode,
+                "date": expense_date.isoformat()
+            })
+            st.success("Expense added")
+            st.rerun()
+        else:
+            st.warning("Please enter an expense")
 
-# ---------------- READ EXPENSES ----------------
+# ---------- READ EXPENSES ----------
 docs = db.collection("expenses").stream()
-
 data = []
 for doc in docs:
     row = doc.to_dict()
@@ -53,10 +88,7 @@ for doc in docs:
 
 df = pd.DataFrame(data)
 
-st.subheader("Your Expenses")
-
 if not df.empty:
-    # Ensure columns exist for older records
     for col in ["expense", "amount", "category", "payment_mode", "date"]:
         if col not in df.columns:
             df[col] = ""
@@ -69,9 +101,8 @@ if not df.empty:
     df["sort_date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.sort_values(by="sort_date", ascending=False, na_position="last")
 
-    # ---------------- FILTERS ----------------
+    # ---------- FILTERS ----------
     st.subheader("Filters")
-
     show_all = st.checkbox("Show all expenses", value=True)
 
     if show_all:
@@ -91,17 +122,8 @@ if not df.empty:
         category_options = sorted(df["category"].unique())
         payment_options = sorted(df["payment_mode"].unique())
 
-        category_filter = st.multiselect(
-            "Filter by category",
-            options=category_options,
-            default=category_options
-        )
-
-        payment_filter = st.multiselect(
-            "Filter by payment mode",
-            options=payment_options,
-            default=payment_options
-        )
+        category_filter = st.multiselect("Filter by category", category_options, default=category_options)
+        payment_filter = st.multiselect("Filter by payment mode", payment_options, default=payment_options)
 
         filtered_df = df[
             df["category"].isin(category_filter) &
@@ -115,99 +137,52 @@ if not df.empty:
                 (filtered_df["sort_date"] <= pd.to_datetime(end_date))
             ]
 
-    # ---------------- SHOW TABLE ----------------
-    if filtered_df.empty:
-        st.warning("No expenses match the current filters.")
-    else:
-        st.dataframe(
-            filtered_df[["date", "expense", "amount", "category", "payment_mode"]],
-            use_container_width=True
-        )
-        st.info(f"Total Expense (shown): ₹{filtered_df['amount'].sum():,.2f}")
+    # ---------- KPI CARDS ----------
+    total = filtered_df["amount"].sum()
+    month_total = filtered_df[
+        filtered_df["sort_date"].dt.month == date.today().month
+    ]["amount"].sum()
+    avg_entry = total / max(len(filtered_df), 1)
 
-    # ---------------- DELETE ----------------
-    action_df = filtered_df.copy()
-    action_df["label"] = action_df.apply(
-        lambda r: f"{r['date']} — {r['expense']} — ₹{r['amount']:.2f} [{r['category']}, {r['payment_mode']}]",
-        axis=1
+    col1, col2, col3 = st.columns(3)
+    col1.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Expense</div><div class='kpi-value'>₹{total:,.2f}</div></div>", unsafe_allow_html=True)
+    col2.markdown(f"<div class='kpi-card'><div class='kpi-title'>This Month</div><div class='kpi-value'>₹{month_total:,.2f}</div></div>", unsafe_allow_html=True)
+    col3.markdown(f"<div class='kpi-card'><div class='kpi-title'>Avg/Entry</div><div class='kpi-value'>₹{avg_entry:,.2f}</div></div>", unsafe_allow_html=True)
+
+    # ---------- TABLE + DOWNLOAD ----------
+    st.subheader("Expenses")
+    st.dataframe(
+        filtered_df[["date", "expense", "amount", "category", "payment_mode"]],
+        use_container_width=True
     )
 
-    st.subheader("Delete Expense")
-    del_label = st.selectbox("Select expense to delete", action_df["label"], key="del_label")
-    del_id = action_df.loc[action_df["label"] == del_label, "id"].values[0]
+    csv_data = filtered_df[["date", "expense", "amount", "category", "payment_mode"]].to_csv(index=False).encode("utf-8")
+    st.download_button("Download CSV", csv_data, file_name="expenses.csv", mime="text/csv")
 
-    if st.button("Delete Expense"):
-        db.collection("expenses").document(del_id).delete()
-        st.success("Expense deleted")
-        st.rerun()
+    # ---------- CHARTS (PLOTLY) ----------
+    st.subheader("Spending Trend")
+    trend = filtered_df.dropna(subset=["sort_date"]).copy()
+    trend = trend.groupby(trend["sort_date"].dt.date)["amount"].sum().reset_index()
+    fig_trend = px.line(trend, x="sort_date", y="amount", markers=True)
+    fig_trend.update_layout(xaxis_title="Date", yaxis_title="Amount")
+    st.plotly_chart(fig_trend, use_container_width=True)
 
-    # ---------------- UPDATE ----------------
-    st.subheader("Update Expense")
-    edit_label = st.selectbox("Select expense to edit", action_df["label"], key="edit_label")
-    selected_row = action_df[action_df["label"] == edit_label].iloc[0]
+    col4, col5 = st.columns(2)
 
-    new_expense = st.text_input("Update expense name", value=selected_row["expense"], key="edit_expense")
-    new_amount = st.number_input(
-        "Update amount",
-        min_value=0.0,
-        value=float(selected_row["amount"]),
-        step=50.0,
-        format="%.2f",
-        key="edit_amount"
-    )
+    with col4:
+        st.subheader("Category Split")
+        cat_chart = filtered_df.groupby("category")["amount"].sum().reset_index()
+        fig_pie = px.pie(cat_chart, names="category", values="amount", hole=0.4)
+        st.plotly_chart(fig_pie, use_container_width=True)
 
-    try:
-        selected_date = pd.to_datetime(selected_row["date"]).date()
-    except Exception:
-        selected_date = date.today()
-    new_date = st.date_input("Update date", value=selected_date, key="edit_date")
-
-    category_options = sorted(set(CATEGORIES + action_df["category"].tolist() + ["Other"]))
-    current_cat = selected_row["category"] if selected_row["category"] in category_options else "Other"
-    new_category_select = st.selectbox(
-        "Update category",
-        category_options,
-        index=category_options.index(current_cat),
-        key="edit_category_select"
-    )
-    if new_category_select == "Other":
-        new_category_custom = st.text_input(
-            "Custom category",
-            value=selected_row["category"] if current_cat == "Other" else "",
-            key="edit_category_custom"
-        )
-        new_category = new_category_custom.strip() if new_category_custom.strip() else "Other"
-    else:
-        new_category = new_category_select
-
-    payment_options = sorted(set(PAYMENT_MODES + action_df["payment_mode"].tolist() + ["Other"]))
-    current_pay = selected_row["payment_mode"] if selected_row["payment_mode"] in payment_options else "Other"
-    new_payment_select = st.selectbox(
-        "Update payment mode",
-        payment_options,
-        index=payment_options.index(current_pay),
-        key="edit_payment_select"
-    )
-    if new_payment_select == "Other":
-        new_payment_custom = st.text_input(
-            "Custom payment mode",
-            value=selected_row["payment_mode"] if current_pay == "Other" else "",
-            key="edit_payment_custom"
-        )
-        new_payment_mode = new_payment_custom.strip() if new_payment_custom.strip() else "Other"
-    else:
-        new_payment_mode = new_payment_select
-
-    if st.button("Update Expense"):
-        db.collection("expenses").document(selected_row["id"]).update({
-            "expense": new_expense.strip(),
-            "amount": float(new_amount),
-            "category": new_category,
-            "payment_mode": new_payment_mode,
-            "date": new_date.isoformat()
-        })
-        st.success("Expense updated")
-        st.rerun()
+    with col5:
+        st.subheader("Monthly Spending")
+        monthly = filtered_df.dropna(subset=["sort_date"]).copy()
+        monthly["month"] = monthly["sort_date"].dt.to_period("M").astype(str)
+        monthly_sum = monthly.groupby("month")["amount"].sum().reset_index()
+        fig_bar = px.bar(monthly_sum, x="month", y="amount")
+        fig_bar.update_layout(xaxis_title="Month", yaxis_title="Amount")
+        st.plotly_chart(fig_bar, use_container_width=True)
 
 else:
     st.warning("No expenses added yet")
