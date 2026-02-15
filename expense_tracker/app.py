@@ -70,7 +70,21 @@ if not df.empty:
     df = df.sort_values(by="sort_date", ascending=False, na_position="last")
 
     # ---------------- FILTERS ----------------
+    # ---------------- FILTERS ----------------
     st.subheader("Filters")
+
+    # Date range defaults
+    min_date = df["sort_date"].min()
+    max_date = df["sort_date"].max()
+
+    if pd.notna(min_date) and pd.notna(max_date):
+        date_range = st.date_input(
+            "Select date range",
+            value=(min_date.date(), max_date.date())
+        )
+    else:
+        date_range = (date.today(), date.today())
+
     show_all = st.checkbox("Show all expenses", value=True)
 
     if show_all:
@@ -96,14 +110,15 @@ if not df.empty:
             df["payment_mode"].isin(payment_filter)
         ]
 
-    if filtered_df.empty:
-        st.warning("No expenses match the current filters.")
-    else:
-        st.dataframe(
-            filtered_df[["date", "expense", "amount", "category", "payment_mode"]],
-            use_container_width=True
-        )
-        st.info(f"Total Expense (shown): ₹{filtered_df['amount'].sum():,.2f}")
+    # ---------------- APPLY DATE FILTER ----------------
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        start_date, end_date = date_range
+
+        filtered_df = filtered_df[
+            (filtered_df["sort_date"] >= pd.to_datetime(start_date)) &
+            (filtered_df["sort_date"] <= pd.to_datetime(end_date))
+        ]
+
 
         # ---------------- DELETE ----------------
         action_df = filtered_df.copy()
