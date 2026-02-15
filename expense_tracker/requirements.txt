@@ -3,3 +3,5 @@ pandas
 firebase-admin
 pyrebase4
 plotly
+google-auth-oauthlib
+requests
