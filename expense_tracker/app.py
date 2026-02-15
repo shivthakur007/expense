@@ -390,3 +390,13 @@ if not df.empty:
 
 else:
     st.warning("No expenses added yet")
+
+if st.sidebar.button("Migrate old expenses to my account"):
+    old_docs = db.collection("expenses").stream()
+    moved = 0
+    for doc in old_docs:
+        data = doc.to_dict()
+        expenses_ref.add(data)
+        moved += 1
+    st.sidebar.success(f"Migrated {moved} expenses.")
+
