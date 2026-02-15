@@ -70,7 +70,6 @@ if not df.empty:
     df = df.sort_values(by="sort_date", ascending=False, na_position="last")
 
     # ---------------- FILTERS ----------------
-    # ---------------- FILTERS ----------------
     st.subheader("Filters")
 
     # Date range defaults
@@ -118,7 +117,6 @@ if not df.empty:
             (filtered_df["sort_date"] >= pd.to_datetime(start_date)) &
             (filtered_df["sort_date"] <= pd.to_datetime(end_date))
         ]
-
 
         # ---------------- DELETE ----------------
         action_df = filtered_df.copy()
