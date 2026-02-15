@@ -1,14 +1,130 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
-from firebase_config import get_db
+import requests
+from google_auth_oauthlib.flow import Flow
 import plotly.express as px
+from firebase_config import get_db
 
 db = get_db()
 
 st.set_page_config(page_title="Expense Tracker", layout="wide")
 
-# ---------- THEME TOGGLE ----------
+# ---------------- AUTH CONFIG ----------------
+FIREBASE_API_KEY = st.secrets["auth"]["api_key"]
+GOOGLE_CLIENT_ID = st.secrets["auth"]["google_client_id"]
+GOOGLE_CLIENT_SECRET = st.secrets["auth"]["google_client_secret"]
+REDIRECT_URI = st.secrets["auth"]["redirect_uri"]
+
+def firebase_email_signup(email, password):
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FIREBASE_API_KEY}"
+    payload = {"email": email, "password": password, "returnSecureToken": True}
+    return requests.post(url, json=payload).json()
+
+def firebase_email_login(email, password):
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}"
+    payload = {"email": email, "password": password, "returnSecureToken": True}
+    return requests.post(url, json=payload).json()
+
+def firebase_google_login(id_token):
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key={FIREBASE_API_KEY}"
+    payload = {
+        "postBody": f"id_token={id_token}&providerId=google.com",
+        "requestUri": REDIRECT_URI,
+        "returnSecureToken": True,
+        "returnIdpCredential": True,
+    }
+    return requests.post(url, json=payload).json()
+
+def start_google_oauth():
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [REDIRECT_URI],
+            }
+        },
+        scopes=["openid", "email", "profile"],
+        redirect_uri=REDIRECT_URI,
+    )
+    auth_url, _ = flow.authorization_url(prompt="consent")
+    return auth_url
+
+def exchange_google_code(code):
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [REDIRECT_URI],
+            }
+        },
+        scopes=["openid", "email", "profile"],
+        redirect_uri=REDIRECT_URI,
+    )
+    flow.fetch_token(code=code)
+    return flow.credentials.id_token
+
+# ---------------- SESSION ----------------
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+# ---------------- LOGIN UI ----------------
+if st.session_state.user is None:
+    st.title("Expense Tracker 💸")
+    st.markdown("Please sign in to continue")
+
+    tab1, tab2 = st.tabs(["Login", "Sign Up"])
+
+    with tab1:
+        email = st.text_input("Email", key="login_email")
+        password = st.text_input("Password", type="password", key="login_pass")
+        if st.button("Login"):
+            resp = firebase_email_login(email, password)
+            if "localId" in resp:
+                st.session_state.user = {"uid": resp["localId"], "email": resp["email"]}
+                st.rerun()
+            else:
+                st.error(resp.get("error", {}).get("message", "Login failed"))
+
+        st.divider()
+        st.markdown("Or sign in with Google")
+        google_url = start_google_oauth()
+        st.link_button("Continue with Google", google_url)
+
+    with tab2:
+        email = st.text_input("Email", key="signup_email")
+        password = st.text_input("Password", type="password", key="signup_pass")
+        if st.button("Create Account"):
+            resp = firebase_email_signup(email, password)
+            if "localId" in resp:
+                st.success("Account created. Please log in.")
+            else:
+                st.error(resp.get("error", {}).get("message", "Signup failed"))
+
+    # Handle Google redirect
+    query = st.query_params
+    if "code" in query:
+        id_token = exchange_google_code(query["code"])
+        resp = firebase_google_login(id_token)
+        if "localId" in resp:
+            st.session_state.user = {"uid": resp["localId"], "email": resp["email"]}
+            st.rerun()
+
+    st.stop()
+
+# ---------------- LOGOUT ----------------
+st.sidebar.success(f"Logged in as {st.session_state.user['email']}")
+if st.sidebar.button("Logout"):
+    st.session_state.user = None
+    st.rerun()
+
+# ---------------- UI THEME ----------------
 dark_mode = st.sidebar.toggle("Dark mode", value=False)
 
 if dark_mode:
@@ -36,7 +152,6 @@ else:
     .stButton>button:hover { background: #1f2937; }
     </style>
     """
-
 st.markdown(theme_css, unsafe_allow_html=True)
 
 st.title("Expense Tracker 💸")
@@ -44,6 +159,9 @@ st.markdown("Money saved is equal to money earned")
 
 CATEGORIES = ["Food", "Transport", "Bills", "Shopping", "Entertainment", "Health", "Education", "Other"]
 PAYMENT_MODES = ["Cash", "Card", "UPI", "Bank Transfer", "Wallet", "Other"]
+
+uid = st.session_state.user["uid"]
+expenses_ref = db.collection("users").document(uid).collection("expenses")
 
 # ---------- SIDEBAR: ADD EXPENSE ----------
 with st.sidebar:
@@ -66,7 +184,7 @@ with st.sidebar:
 
     if st.button("Add Expense"):
         if expense:
-            db.collection("expenses").add({
+            expenses_ref.add({
                 "expense": expense.strip(),
                 "amount": float(amount),
                 "category": category,
@@ -79,7 +197,7 @@ with st.sidebar:
             st.warning("Please enter an expense")
 
 # ---------- READ EXPENSES ----------
-docs = db.collection("expenses").stream()
+docs = expenses_ref.stream()
 data = []
 for doc in docs:
     row = doc.to_dict()
@@ -198,7 +316,7 @@ if not df.empty:
         del_id = action_df.loc[action_df["label"] == del_label, "id"].values[0]
 
         if st.button("Delete Expense"):
-            db.collection("expenses").document(del_id).delete()
+            expenses_ref.document(del_id).delete()
             st.success("Expense deleted")
             st.rerun()
 
@@ -260,7 +378,7 @@ if not df.empty:
             new_payment_mode = new_payment_select
 
         if st.button("Update Expense"):
-            db.collection("expenses").document(selected_row["id"]).update({
+            expenses_ref.document(selected_row["id"]).update({
                 "expense": new_expense.strip(),
                 "amount": float(new_amount),
                 "category": new_category,
