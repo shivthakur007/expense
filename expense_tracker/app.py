@@ -60,6 +60,9 @@ def start_google_oauth():
     return auth_url
 
 def exchange_google_code(code):
+    st.write("REDIRECT USED:", REDIRECT_URI)
+    st.write("CODE RECEIVED:", code)
+
     flow = Flow.from_client_config(
         {
             "web": {
@@ -73,8 +76,14 @@ def exchange_google_code(code):
         scopes=["openid", "email", "profile"],
         redirect_uri=REDIRECT_URI,
     )
-    flow.fetch_token(code=code, client_secret=GOOGLE_CLIENT_SECRET)
-    return flow.credentials.id_token
+
+    try:
+        flow.fetch_token(code=code)
+        st.write("TOKEN SUCCESS")
+        return flow.credentials.id_token
+    except Exception as e:
+        st.write("FULL ERROR:", e)
+        raise e
 
 # ---------------- SESSION ----------------
 if "user" not in st.session_state:
