@@ -8,7 +8,7 @@ from firebase_config import get_db
 
 db = get_db()
 
-st.set_page_config(page_title="Expense Tracker", layout="wide")
+st.set_page_config(page_title="Money Manager", layout="wide")
 
 # ---------------- AUTH CONFIG ----------------
 FIREBASE_API_KEY = st.secrets["auth"]["api_key"]
